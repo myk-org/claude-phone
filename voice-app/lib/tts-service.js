@@ -46,6 +46,38 @@ function generateFilename(text) {
 }
 
 /**
+ * Call Gemini TTS and extract audio data with null-checking.
+ * Retries once on malformed response before giving up.
+ * @param {object} model - Gemini generative model instance
+ * @param {string} text - Text to convert to speech
+ * @returns {Promise<string>} Base64-encoded audio data
+ */
+async function callGeminiTTS(model, text) {
+  const prompt = `Say the following text exactly as written, do not add anything: ${text}`;
+
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const result = await model.generateContent(prompt);
+    const audioData = result.response?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+
+    if (audioData) {
+      return audioData;
+    }
+
+    // Malformed/empty response
+    logger.warn('Gemini TTS returned malformed response', {
+      attempt,
+      rawResponse: JSON.stringify(result.response)
+    });
+
+    if (attempt < 2) {
+      logger.info('Retrying Gemini TTS due to malformed response', { attempt });
+    }
+  }
+
+  throw new Error('Gemini TTS returned empty or malformed response after retry');
+}
+
+/**
  * Convert text to speech using Google Gemini TTS API
  * @param {string} text - Text to convert to speech
  * @param {string} voiceName - Gemini voice name (optional, e.g., "Kore", "Puck")
@@ -80,8 +112,7 @@ async function generateSpeech(text, voiceName = DEFAULT_VOICE) {
       }
     });
 
-    const result = await model.generateContent(`Say the following text exactly as written, do not add anything: ${text}`);
-    const audioData = result.response.candidates[0].content.parts[0].inlineData.data;
+    const audioData = await callGeminiTTS(model, text);
 
     // audioData is base64-encoded PCM at 24kHz, 16-bit, mono
     const pcmBuffer = Buffer.from(audioData, 'base64');

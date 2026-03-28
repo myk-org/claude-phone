@@ -92,6 +92,10 @@ console.log("  - HTTP Port:   " + config.http_port);
 console.log("  - WS Port:     " + config.ws_port);
 console.log("  - Audio Dir:   " + config.audio_dir);
 console.log("  - Mix Type:    " + (process.env.AUDIO_FORK_MIXTYPE || "L") + " (capture direction)");
+console.log("  - Gemini Live: " + (process.env.GEMINI_LIVE_ENABLED === 'true' ? 'ENABLED' : 'disabled'));
+if (process.env.GEMINI_LIVE_ENABLED === 'true' && !process.env.GOOGLE_API_KEY) {
+  console.warn('[WARN] GEMINI_LIVE_ENABLED=true but GOOGLE_API_KEY is not set - Gemini Live will fail at runtime');
+}
 console.log("\n[DEVICES] Loaded " + Object.keys(deviceRegistry.getAllDevices()).length + " device extensions");
 console.log("\nWaiting for connections...\n");
 

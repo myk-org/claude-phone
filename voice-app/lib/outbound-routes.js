@@ -11,6 +11,7 @@ const logger = require('./logger');
 const { OutboundSession, getSession, getAllSessions } = require('./outbound-session');
 const { initiateOutboundCall, playMessage, hangupCall } = require('./outbound-handler');
 const { runConversationLoop } = require('./conversation-loop');
+const { runGeminiLiveLoop } = require('./gemini-live-loop');
 
 // Dependencies injected via setupRoutes()
 var srf = null;
@@ -247,19 +248,44 @@ router.post('/outbound-call', async function(req, res) {
           session.transition('CONVERSING');
 
           try {
-            await runConversationLoop(endpoint, dialog, callId, {
-              audioForkServer: audioForkServer,
-              whisperClient: whisperClient,
-              claudeBridge: claudeBridge,
-              ttsService: ttsService,
-              wsPort: wsPort,
-              deviceConfig: deviceConfig,
-              initialContext: message,
-              context: context,           // NEW: pass structured context
-              skipGreeting: true,
-              maxTurns: 20,
-              callerExtension: to
-            });
+            // Try Gemini Live pipeline if enabled
+            var usedGeminiLive = false;
+            if (process.env.GEMINI_LIVE_ENABLED === 'true') {
+              logger.info('Attempting Gemini Live for outbound conversation', { callId });
+              var liveResult = await runGeminiLiveLoop(endpoint, dialog, callId, {
+                audioForkServer: audioForkServer,
+                ttsService: ttsService,
+                wsPort: wsPort,
+                deviceConfig: deviceConfig,
+                initialContext: message,
+                skipGreeting: true,
+                callerExtension: to
+              });
+
+              if (liveResult.success) {
+                usedGeminiLive = true;
+              } else {
+                logger.info('Gemini Live failed, falling back to classic pipeline', {
+                  callId, error: liveResult.error
+                });
+              }
+            }
+
+            if (!usedGeminiLive) {
+              await runConversationLoop(endpoint, dialog, callId, {
+                audioForkServer: audioForkServer,
+                whisperClient: whisperClient,
+                claudeBridge: claudeBridge,
+                ttsService: ttsService,
+                wsPort: wsPort,
+                deviceConfig: deviceConfig,
+                initialContext: message,
+                context: context,           // NEW: pass structured context
+                skipGreeting: true,
+                maxTurns: 20,
+                callerExtension: to
+              });
+            }
 
             await hangupCall(dialog, endpoint, callId);
             session.transition('COMPLETED', 'conversation_complete');

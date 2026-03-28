@@ -4,6 +4,7 @@
  */
 
 const { setTimeout: sleep } = require('node:timers/promises');
+const { runGeminiLiveLoop } = require('./gemini-live-loop');
 
 // Audio cue URLs
 const MEDIA_HOST = process.env.MEDIA_HOST;
@@ -350,6 +351,23 @@ async function handleInvite(req, res, options) {
       console.log('[' + new Date().toISOString() + '] CALL Ended');
       if (endpoint) endpoint.destroy().catch(function() {});
     });
+
+    // Try Gemini Live pipeline if enabled
+    if (process.env.GEMINI_LIVE_ENABLED === 'true') {
+      console.log('[' + new Date().toISOString() + '] CALL Attempting Gemini Live pipeline');
+      const liveResult = await runGeminiLiveLoop(endpoint, dialog, callUuid, {
+        audioForkServer: options.audioForkServer,
+        ttsService: options.ttsService,
+        wsPort: options.wsPort,
+        deviceConfig: deviceConfig,
+        callerExtension: callerId
+      });
+
+      if (liveResult.success) {
+        return { endpoint: endpoint, dialog: dialog, callerId: callerId, callUuid: callUuid };
+      }
+      console.log('[' + new Date().toISOString() + '] CALL Gemini Live failed, falling back to classic pipeline: ' + liveResult.error);
+    }
 
     await conversationLoop(endpoint, dialog, callUuid, options, deviceConfig, callerId);
     return { endpoint: endpoint, dialog: dialog, callerId: callerId, callUuid: callUuid };

@@ -98,7 +98,8 @@ class GeminiLiveSession extends EventEmitter {
                   }
                 }
               }
-            }
+            },
+            inputAudioTranscription: {}
           }
         };
 
@@ -289,6 +290,13 @@ class GeminiLiveSession extends EventEmitter {
       var text = serverContent.outputTranscription.text;
       logger.debug('Gemini Live transcript', { text: text.substring(0, 100) });
       this.emit('transcript', text);
+    }
+
+    // Input transcription (what the user said)
+    if (serverContent.inputTranscription && serverContent.inputTranscription.text) {
+      var inputText = serverContent.inputTranscription.text;
+      logger.debug('Gemini Live input transcript', { text: inputText.substring(0, 100) });
+      this.emit('inputTranscription', inputText);
     }
 
     // Turn lifecycle events

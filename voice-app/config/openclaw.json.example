@@ -1,0 +1,13 @@
+{
+  "default": {
+    "backend": "claude"
+  },
+  "users": {
+    "14510": {
+      "backend": "openclaw",
+      "url": "http://openclaw-instance:18789/v1/chat/completions",
+      "token": "your-openclaw-gateway-token",
+      "sessionKey": "phone-username"
+    }
+  }
+}

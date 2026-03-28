@@ -67,12 +67,11 @@ services:
     volumes:
       # Audio files directory for TTS playback
       - ./voice-app/audio:/app/audio
-      # Device configurations
+      # Device configurations (includes openclaw.json)
       - ./voice-app/config:/app/config
     depends_on:
       - drachtio
       - freeswitch
-      - claude-api-server
     # Ports (for reference):
     # - 3000: HTTP API
     # - 3001: WebSocket for audio streaming

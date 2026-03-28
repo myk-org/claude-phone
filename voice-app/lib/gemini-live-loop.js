@@ -91,6 +91,7 @@ async function runGeminiLiveLoop(endpoint, dialog, callUuid, options) {
   var state = STATE_LISTENING;
   var inputTranscriptBuffer = '';
   var queryInProgress = false;
+  var queryDebounceTimer = null;
 
   var audioAccumulator = Buffer.alloc(0);
   var isPlaying = false;
@@ -141,6 +142,46 @@ async function runGeminiLiveLoop(endpoint, dialog, callUuid, options) {
       clearTimeout(flushTimer);
       flushTimer = null;
     }
+    if (queryDebounceTimer) {
+      clearTimeout(queryDebounceTimer);
+      queryDebounceTimer = null;
+    }
+  }
+
+  function fireOpenClawQuery() {
+    var transcript = inputTranscriptBuffer.trim();
+    inputTranscriptBuffer = '';
+
+    if (!transcript || transcript.length < 2) {
+      logger.info('Empty or too short transcript, keep listening', { callUuid: callUuid });
+      return;
+    }
+
+    if (queryInProgress) return;
+    queryInProgress = true;
+
+    logger.info('User said', { callUuid: callUuid, transcript: transcript });
+
+    (async function() {
+      try {
+        var response = await openclawBridge.query(transcript, openclawRoute);
+
+        if (!callActive) { queryInProgress = false; return; }
+
+        logger.info('OpenClaw responded', { callUuid: callUuid, response: response });
+        session.sendText(response);
+        state = STATE_SPEAKING;
+        queryInProgress = false;
+
+      } catch (err) {
+        logger.error('OpenClaw query failed', { callUuid: callUuid, error: err.message });
+        if (callActive) {
+          session.sendText(err.message);
+          state = STATE_SPEAKING;
+        }
+        queryInProgress = false;
+      }
+    })();
   }
 
   try {
@@ -228,12 +269,21 @@ async function runGeminiLiveLoop(endpoint, dialog, callUuid, options) {
       });
     }
 
-    // 5. Handle inputTranscription (what the user said)
+    // 5. Handle inputTranscription (what the user said) — debounce OpenClaw query
     session.on('inputTranscription', function(text) {
-      if (state === STATE_LISTENING) {
-        inputTranscriptBuffer += text;
-        logger.debug('Input transcript chunk', { callUuid: callUuid, text: text });
+      if (state !== STATE_LISTENING || queryInProgress) return;
+
+      inputTranscriptBuffer += text;
+      logger.debug('Input transcript chunk', { callUuid: callUuid, text: text });
+
+      // Debounce: fire OpenClaw query 1.5s after last transcript chunk
+      if (queryDebounceTimer) {
+        clearTimeout(queryDebounceTimer);
       }
+      queryDebounceTimer = setTimeout(function() {
+        queryDebounceTimer = null;
+        fireOpenClawQuery();
+      }, 1500);
     });
 
     // 6. Handle Gemini audio output
@@ -253,43 +303,15 @@ async function runGeminiLiveLoop(endpoint, dialog, callUuid, options) {
     // 7. Handle turnComplete
     session.on('turnComplete', function() {
       if (state === STATE_LISTENING) {
-        if (queryInProgress) {
-          logger.debug('Query already in progress, ignoring turnComplete', { callUuid: callUuid });
-          return;
+        // turnComplete in LISTENING — Gemini finished its (discarded) response
+        // If we have pending transcript, fire the query immediately
+        if (queryDebounceTimer) {
+          clearTimeout(queryDebounceTimer);
+          queryDebounceTimer = null;
         }
-        // User finished speaking — send transcript to OpenClaw
-        var transcript = inputTranscriptBuffer.trim();
-        inputTranscriptBuffer = '';
-
-        if (!transcript || transcript.length < 2) {
-          logger.info('Empty or too short transcript, keep listening', { callUuid: callUuid });
-          return;
+        if (inputTranscriptBuffer.trim().length >= 2 && !queryInProgress) {
+          fireOpenClawQuery();
         }
-
-        logger.info('User said', { callUuid: callUuid, transcript: transcript });
-
-        // Query OpenClaw (async)
-        queryInProgress = true;
-        (async function() {
-          try {
-            var response = await openclawBridge.query(transcript, openclawRoute);
-
-            if (!callActive) return;
-
-            logger.info('OpenClaw responded', { callUuid: callUuid, response: response });
-            session.sendText(response);
-            state = STATE_SPEAKING;
-            queryInProgress = false;
-
-          } catch (err) {
-            logger.error('OpenClaw query failed', { callUuid: callUuid, error: err.message });
-            if (callActive) {
-              session.sendText("I'm having trouble connecting right now, try again in a moment");
-              state = STATE_SPEAKING;
-            }
-            queryInProgress = false;
-          }
-        })();
 
       } else if (state === STATE_SPEAKING) {
         // Gemini finished speaking — flush remaining audio
@@ -311,6 +333,10 @@ async function runGeminiLiveLoop(endpoint, dialog, callUuid, options) {
     session.on('interrupted', function() {
       logger.info('Barge-in detected', { callUuid: callUuid });
       clearAudioState();
+      if (queryDebounceTimer) {
+        clearTimeout(queryDebounceTimer);
+        queryDebounceTimer = null;
+      }
       endpoint.api('uuid_break', endpoint.uuid).catch(function() {});
       state = STATE_LISTENING;
       inputTranscriptBuffer = '';
@@ -370,6 +396,11 @@ async function runGeminiLiveLoop(endpoint, dialog, callUuid, options) {
     if (flushTimer) {
       clearTimeout(flushTimer);
       flushTimer = null;
+    }
+
+    if (queryDebounceTimer) {
+      clearTimeout(queryDebounceTimer);
+      queryDebounceTimer = null;
     }
 
     if (session) {

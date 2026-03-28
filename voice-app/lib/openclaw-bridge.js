@@ -34,7 +34,7 @@ async function query(transcript, options) {
         messages: [{ role: 'user', content: '[VOICE] ' + transcript }]
       },
       {
-        timeout: 15000,
+        timeout: 60000,
         headers: {
           'Authorization': 'Bearer ' + token,
           'Content-Type': 'application/json',
@@ -54,7 +54,7 @@ async function query(transcript, options) {
     }
 
     if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
-      logger.error('OPENCLAW Timeout after 15 seconds', { url: url });
+      logger.error('OPENCLAW Timeout after 60 seconds', { url: url });
       throw new Error("That took too long, try again.");
     }
 

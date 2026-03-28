@@ -131,8 +131,7 @@ test('docker compose generation', async (t) => {
         }
       ],
       api: {
-        elevenlabs: { apiKey: 'elev-key' },
-        openai: { apiKey: 'openai-key' }
+        google: { apiKey: 'google-key', defaultVoice: 'Kore' }
       },
       secrets: {
         drachtio: 'drachtio-secret',
@@ -175,8 +174,7 @@ test('docker compose generation', async (t) => {
         }
       ],
       api: {
-        elevenlabs: { apiKey: 'elev-key' },
-        openai: { apiKey: 'openai-key' }
+        google: { apiKey: 'google-key', defaultVoice: 'Kore' }
       },
       secrets: {
         drachtio: 'drachtio-secret',
@@ -214,8 +212,7 @@ test('docker compose generation', async (t) => {
         }
       ],
       api: {
-        elevenlabs: { apiKey: 'elev-key' },
-        openai: { apiKey: 'openai-key' }
+        google: { apiKey: 'google-key', defaultVoice: 'Kore' }
       },
       secrets: {
         drachtio: 'drachtio-secret',
@@ -257,8 +254,7 @@ test('docker compose generation', async (t) => {
         }
       ],
       api: {
-        elevenlabs: { apiKey: 'elev-key' },
-        openai: { apiKey: 'openai-key' }
+        google: { apiKey: 'google-key', defaultVoice: 'Kore' }
       },
       secrets: {
         drachtio: 'drachtio-secret',

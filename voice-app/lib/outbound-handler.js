@@ -58,6 +58,7 @@ async function initiateOutboundCall(srf, mediaServer, options) {
     const isExternal = to.startsWith('+');
     const phoneNumber = isExternal ? '9' + to.replace(/^\+1?/, '') : to;
     const sipTrunkHost = process.env.SIP_TRUNK_HOST || '10.70.7.50';
+    const sipDomain = process.env.SIP_DOMAIN || sipTrunkHost;
     const externalIp = process.env.EXTERNAL_IP || '10.70.7.81';
     const defaultCallerId = callerId || process.env.DEFAULT_CALLER_ID || '+15551234567';
 
@@ -79,8 +80,8 @@ async function initiateOutboundCall(srf, mediaServer, options) {
     const fromExtension = deviceConfig ? deviceConfig.extension : defaultCallerId.replace('+', '');
     const displayName = deviceConfig ? deviceConfig.name : null;
     const fromHeader = displayName
-      ? '"' + displayName + '" <sip:' + fromExtension + '@' + sipTrunkHost + '>'
-      : '<sip:' + fromExtension + '@' + sipTrunkHost + '>';
+      ? '"' + displayName + '" <sip:' + fromExtension + '@' + sipDomain + '>'
+      : '<sip:' + fromExtension + '@' + sipDomain + '>';
 
     const uacOptions = {
       localSdp: localSdp,
@@ -208,7 +209,7 @@ async function initiateOutboundCall(srf, mediaServer, options) {
  * @param {Object} endpoint - FreeSWITCH endpoint
  * @param {string} message - Text to convert to speech and play
  * @param {Object} [options] - Playback options
- * @param {string} [options.voiceId] - ElevenLabs voice ID for device-specific voice
+ * @param {string} [options.voiceId] - Gemini voice name for device-specific voice
  * @returns {Promise<void>}
  */
 async function playMessage(endpoint, message, options) {

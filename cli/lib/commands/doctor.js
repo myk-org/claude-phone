@@ -5,7 +5,7 @@ import axios from 'axios';
 import { loadConfig, configExists, getInstallationType } from '../config.js';
 import { checkDocker, getContainerStatus } from '../docker.js';
 import { isServerRunning, getServerPid } from '../process-manager.js';
-import { validateElevenLabsKey, validateOpenAIKey } from '../validators.js';
+import { validateGoogleApiKey } from '../validators.js';
 import { isReachable, checkClaudeApiServer as checkClaudeApiHealth } from '../network.js';
 import { checkPort } from '../port-check.js';
 
@@ -54,31 +54,13 @@ async function checkClaudeCLI() {
 }
 
 /**
- * Check ElevenLabs API connectivity
- * @param {string} apiKey - ElevenLabs API key
+ * Check Google API connectivity
+ * @param {string} apiKey - Google API key
  * @returns {Promise<{connected: boolean, error?: string}>}
  */
-async function checkElevenLabsAPI(apiKey) {
+async function checkGoogleAPI(apiKey) {
   try {
-    const result = await validateElevenLabsKey(apiKey);
-    if (result.valid) {
-      return { connected: true };
-    } else {
-      return { connected: false, error: result.error };
-    }
-  } catch (error) {
-    return { connected: false, error: error.message };
-  }
-}
-
-/**
- * Check OpenAI API connectivity
- * @param {string} apiKey - OpenAI API key
- * @returns {Promise<{connected: boolean, error?: string}>}
- */
-async function checkOpenAIAPI(apiKey) {
-  try {
-    const result = await validateOpenAIKey(apiKey);
+    const result = await validateGoogleApiKey(apiKey);
     if (result.valid) {
       return { connected: true };
     } else {
@@ -283,32 +265,18 @@ async function runVoiceServerChecks(config, isPiSplit) {
   }
   checks.push({ name: 'Docker', passed: dockerResult.installed && dockerResult.running });
 
-  // Check ElevenLabs API (only if configured)
-  if (config.api && config.api.elevenlabs && config.api.elevenlabs.apiKey) {
-    const elevenLabsSpinner = ora('Checking ElevenLabs API...').start();
-    const elevenLabsResult = await checkElevenLabsAPI(config.api.elevenlabs.apiKey);
-    if (elevenLabsResult.connected) {
-      elevenLabsSpinner.succeed(chalk.green('ElevenLabs API connected'));
+  // Check Google API (only if configured)
+  if (config.api && config.api.google && config.api.google.apiKey) {
+    const googleSpinner = ora('Checking Google Gemini API...').start();
+    const googleResult = await checkGoogleAPI(config.api.google.apiKey);
+    if (googleResult.connected) {
+      googleSpinner.succeed(chalk.green('Google Gemini API connected'));
       passedCount++;
     } else {
-      elevenLabsSpinner.fail(chalk.red(`ElevenLabs API failed: ${elevenLabsResult.error}`));
+      googleSpinner.fail(chalk.red(`Google Gemini API failed: ${googleResult.error}`));
       console.log(chalk.gray('  → Check your API key in ~/.claude-phone/config.json\n'));
     }
-    checks.push({ name: 'ElevenLabs API', passed: elevenLabsResult.connected });
-  }
-
-  // Check OpenAI API (only if configured)
-  if (config.api && config.api.openai && config.api.openai.apiKey) {
-    const openAISpinner = ora('Checking OpenAI API...').start();
-    const openAIResult = await checkOpenAIAPI(config.api.openai.apiKey);
-    if (openAIResult.connected) {
-      openAISpinner.succeed(chalk.green('OpenAI API connected'));
-      passedCount++;
-    } else {
-      openAISpinner.fail(chalk.red(`OpenAI API failed: ${openAIResult.error}`));
-      console.log(chalk.gray('  → Check your API key in ~/.claude-phone/config.json\n'));
-    }
-    checks.push({ name: 'OpenAI API', passed: openAIResult.connected });
+    checks.push({ name: 'Google Gemini API', passed: googleResult.connected });
   }
 
   // Check Voice-app container

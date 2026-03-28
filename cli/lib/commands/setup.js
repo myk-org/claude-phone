@@ -11,9 +11,8 @@ import {
   configExists
 } from '../config.js';
 import {
-  validateElevenLabsKey,
-  validateOpenAIKey,
-  validateVoiceId,
+  validateGoogleApiKey,
+  validateVoiceName,
   validateExtension,
   validateIP,
   validateHostname
@@ -457,7 +456,7 @@ async function setupPi(config) {
   if (config.deployment && config.deployment.mode === 'standard') {
     console.log(chalk.yellow('\n⚠️  Detected existing standard configuration'));
     console.log(chalk.gray('Your config will be migrated to Pi split-mode while preserving:'));
-    console.log(chalk.gray('  • API keys (ElevenLabs, OpenAI)'));
+    console.log(chalk.gray('  • API keys (Google Gemini)'));
     console.log(chalk.gray('  • Device configurations'));
     console.log(chalk.gray('  • SIP settings\n'));
 
@@ -669,8 +668,7 @@ function createDefaultConfig() {
   return {
     version: '1.0.0',
     api: {
-      elevenlabs: { apiKey: '', defaultVoiceId: '', validated: false },
-      openai: { apiKey: '', validated: false }
+      google: { apiKey: '', defaultVoice: 'Kore', validated: false }
     },
     sip: {
       domain: '',
@@ -700,13 +698,18 @@ function createDefaultConfig() {
  * @returns {Promise<object>} Updated config
  */
 async function setupAPIKeys(config) {
-  // ElevenLabs API Key
-  const elevenLabsAnswers = await inquirer.prompt([
+  // Ensure config.api.google exists
+  if (!config.api.google) {
+    config.api.google = { apiKey: '', defaultVoice: 'Kore', validated: false };
+  }
+
+  // Google API Key (used for both Gemini STT and TTS)
+  const googleAnswers = await inquirer.prompt([
     {
       type: 'password',
       name: 'apiKey',
-      message: 'ElevenLabs API key:',
-      default: config.api.elevenlabs.apiKey,
+      message: 'Google API key (for Gemini STT & TTS):',
+      default: config.api.google.apiKey,
       validate: (input) => {
         if (!input || input.trim() === '') {
           return 'API key is required';
@@ -716,12 +719,12 @@ async function setupAPIKeys(config) {
     }
   ]);
 
-  const elevenLabsKey = elevenLabsAnswers.apiKey;
-  const spinner = ora('Validating ElevenLabs API key...').start();
+  const googleKey = googleAnswers.apiKey;
+  const spinner = ora('Validating Google API key...').start();
 
-  const elevenLabsResult = await validateElevenLabsKey(elevenLabsKey);
-  if (!elevenLabsResult.valid) {
-    spinner.fail(`Invalid ElevenLabs API key: ${elevenLabsResult.error}`);
+  const googleResult = await validateGoogleApiKey(googleKey);
+  if (!googleResult.valid) {
+    spinner.fail(`Invalid Google API key: ${googleResult.error}`);
     console.log(chalk.yellow('\n⚠️  You can continue setup, but the key may not work.'));
     const { continueAnyway } = await inquirer.prompt([
       {
@@ -736,95 +739,24 @@ async function setupAPIKeys(config) {
       throw new Error('Setup cancelled due to invalid API key');
     }
 
-    config.api.elevenlabs = { apiKey: elevenLabsKey, defaultVoiceId: '', validated: false };
+    config.api.google = { apiKey: googleKey, defaultVoice: config.api.google.defaultVoice || 'Kore', validated: false };
   } else {
-    spinner.succeed('ElevenLabs API key validated');
-    config.api.elevenlabs = { apiKey: elevenLabsKey, defaultVoiceId: '', validated: true };
+    spinner.succeed('Google API key validated');
+    config.api.google = { apiKey: googleKey, defaultVoice: config.api.google.defaultVoice || 'Kore', validated: true };
   }
 
-  // Ask for default voice ID immediately after API key
-  const voiceIdAnswers = await inquirer.prompt([
+  // Ask for default TTS voice
+  const voiceAnswers = await inquirer.prompt([
     {
-      type: 'input',
-      name: 'voiceId',
-      message: 'ElevenLabs default voice ID (for all devices):',
-      default: config.api.elevenlabs.defaultVoiceId || '',
-      validate: (input) => {
-        if (!input || input.trim() === '') {
-          return 'Voice ID is required';
-        }
-        return true;
-      }
+      type: 'list',
+      name: 'voice',
+      message: 'Default TTS voice:',
+      default: config.api.google.defaultVoice || 'Kore',
+      choices: ['Kore', 'Puck', 'Charon', 'Fenrir', 'Aoede', 'Leda', 'Orus', 'Zephyr']
     }
   ]);
 
-  const defaultVoiceId = voiceIdAnswers.voiceId;
-  const voiceSpinner = ora('Validating ElevenLabs voice ID...').start();
-
-  const voiceValidation = await validateVoiceId(elevenLabsKey, defaultVoiceId);
-  if (!voiceValidation.valid) {
-    voiceSpinner.fail(`Voice ID validation failed: ${voiceValidation.error}`);
-    console.log(chalk.yellow('\n⚠️  You can continue setup, but the voice ID may not work.'));
-    const { continueAnyway } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'continueAnyway',
-        message: 'Continue anyway?',
-        default: false
-      }
-    ]);
-
-    if (!continueAnyway) {
-      throw new Error('Setup cancelled due to invalid voice ID');
-    }
-
-    config.api.elevenlabs.defaultVoiceId = defaultVoiceId;
-  } else {
-    voiceSpinner.succeed(`Voice ID validated: ${voiceValidation.name}`);
-    config.api.elevenlabs.defaultVoiceId = defaultVoiceId;
-  }
-
-  // OpenAI API Key
-  const openAIAnswers = await inquirer.prompt([
-    {
-      type: 'password',
-      name: 'apiKey',
-      message: 'OpenAI API key (for Whisper STT):',
-      default: config.api.openai.apiKey,
-      validate: (input) => {
-        if (!input || input.trim() === '') {
-          return 'API key is required';
-        }
-        return true;
-      }
-    }
-  ]);
-
-  const openAIKey = openAIAnswers.apiKey;
-  const openAISpinner = ora('Validating OpenAI API key...').start();
-
-  const openAIResult = await validateOpenAIKey(openAIKey);
-  if (!openAIResult.valid) {
-    openAISpinner.fail(`Invalid OpenAI API key: ${openAIResult.error}`);
-    console.log(chalk.yellow('\n⚠️  You can continue setup, but the key may not work.'));
-    const { continueAnyway } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'continueAnyway',
-        message: 'Continue anyway?',
-        default: false
-      }
-    ]);
-
-    if (!continueAnyway) {
-      throw new Error('Setup cancelled due to invalid API key');
-    }
-
-    config.api.openai = { apiKey: openAIKey, validated: false };
-  } else {
-    openAISpinner.succeed('OpenAI API key validated');
-    config.api.openai = { apiKey: openAIKey, validated: true };
-  }
+  config.api.google.defaultVoice = voiceAnswers.voice;
 
   return config;
 }
@@ -969,16 +901,11 @@ async function setupDevice(config) {
       }
     },
     {
-      type: 'input',
+      type: 'list',
       name: 'voiceId',
-      message: 'ElevenLabs voice ID:',
-      default: existingDevice?.voiceId || config.api.elevenlabs.defaultVoiceId || '',
-      validate: (input) => {
-        if (!input || input.trim() === '') {
-          return 'Voice ID is required';
-        }
-        return true;
-      }
+      message: 'TTS voice name:',
+      default: existingDevice?.voiceId || config.api.google.defaultVoice || 'Kore',
+      choices: ['Kore', 'Puck', 'Charon', 'Fenrir', 'Aoede', 'Leda', 'Orus', 'Zephyr']
     },
     {
       type: 'input',
@@ -994,13 +921,13 @@ async function setupDevice(config) {
     }
   ]);
 
-  // Validate voice ID with ElevenLabs API
-  const voiceSpinner = ora('Validating ElevenLabs voice ID...').start();
-  const voiceValidation = await validateVoiceId(config.api.elevenlabs.apiKey, answers.voiceId);
+  // Validate voice name
+  const voiceSpinner = ora('Validating voice name...').start();
+  const voiceValidation = await validateVoiceName(null, answers.voiceId);
 
   if (!voiceValidation.valid) {
-    voiceSpinner.fail(`Voice ID validation failed: ${voiceValidation.error}`);
-    console.log(chalk.yellow('\n⚠️  You can continue setup, but the voice ID may not work.'));
+    voiceSpinner.fail(`Voice validation failed: ${voiceValidation.error}`);
+    console.log(chalk.yellow('\n⚠️  You can continue setup, but the voice may not work.'));
     const { continueAnyway } = await inquirer.prompt([
       {
         type: 'confirm',
@@ -1011,12 +938,12 @@ async function setupDevice(config) {
     ]);
 
     if (!continueAnyway) {
-      // Let user re-enter voice ID
+      // Let user re-enter voice name
       console.log(chalk.gray('\nReturning to device setup...'));
       return setupDevice(config);
     }
   } else {
-    voiceSpinner.succeed(`Voice ID validated: ${voiceValidation.name}`);
+    voiceSpinner.succeed(`Voice validated: ${voiceValidation.name}`);
   }
 
   const device = {

@@ -9,7 +9,7 @@
  * - extension: SIP extension number (e.g., "9002")
  * - authId: 3CX authentication ID for SIP REGISTER
  * - password: 3CX authentication password
- * - voiceId: ElevenLabs voice ID for TTS
+ * - voiceId: Google Gemini voice name for TTS (e.g., Kore, Puck, Charon)
  * - prompt: System prompt that defines device personality
  */
 
@@ -25,7 +25,7 @@ const MORPHEUS_DEFAULT = {
   extension: '9000',
   authId: 'Au0XZPTpJY',
   password: 'DGHwMW6v25',
-  voiceId: 'JAgnJveGGUh4qy4kh6dF',
+  voiceId: 'Kore',
   prompt: 'You are Morpheus, Chuck\'s principal AI assistant. You are meticulous, systematic, and excellence-driven. Keep voice responses under 40 words.'
 };
 

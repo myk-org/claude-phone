@@ -1,11 +1,11 @@
 import axios from 'axios';
 
 /**
- * Validate ElevenLabs API key by making a test request
- * @param {string} apiKey - ElevenLabs API key
+ * Validate Google API key by making a test request to the Generative AI API
+ * @param {string} apiKey - Google API key
  * @returns {Promise<{valid: boolean, error?: string}>} Validation result
  */
-export async function validateElevenLabsKey(apiKey) {
+export async function validateGoogleApiKey(apiKey) {
   if (!apiKey || apiKey.trim() === '') {
     return {
       valid: false,
@@ -14,12 +14,10 @@ export async function validateElevenLabsKey(apiKey) {
   }
 
   try {
-    const response = await axios.get('https://api.elevenlabs.io/v1/voices', {
-      headers: {
-        'xi-api-key': apiKey
-      },
-      timeout: 10000
-    });
+    const response = await axios.get(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
+      { timeout: 10000 }
+    );
 
     if (response.status === 200) {
       return { valid: true };
@@ -31,67 +29,10 @@ export async function validateElevenLabsKey(apiKey) {
     };
   } catch (error) {
     if (error.response) {
-      if (error.response.status === 401) {
+      if (error.response.status === 401 || error.response.status === 403) {
         return {
           valid: false,
-          error: 'Invalid API key (401 Unauthorized)'
-        };
-      }
-      return {
-        valid: false,
-        error: `API error: ${error.response.status} ${error.response.statusText}`
-      };
-    }
-
-    if (error.code === 'ECONNABORTED') {
-      return {
-        valid: false,
-        error: 'Request timeout - check your internet connection'
-      };
-    }
-
-    return {
-      valid: false,
-      error: `Network error: ${error.message}`
-    };
-  }
-}
-
-/**
- * Validate OpenAI API key by making a test request
- * @param {string} apiKey - OpenAI API key
- * @returns {Promise<{valid: boolean, error?: string}>} Validation result
- */
-export async function validateOpenAIKey(apiKey) {
-  if (!apiKey || apiKey.trim() === '') {
-    return {
-      valid: false,
-      error: 'API key cannot be empty'
-    };
-  }
-
-  try {
-    const response = await axios.get('https://api.openai.com/v1/models', {
-      headers: {
-        'Authorization': `Bearer ${apiKey}`
-      },
-      timeout: 10000
-    });
-
-    if (response.status === 200) {
-      return { valid: true };
-    }
-
-    return {
-      valid: false,
-      error: `Unexpected status: ${response.status}`
-    };
-  } catch (error) {
-    if (error.response) {
-      if (error.response.status === 401) {
-        return {
-          valid: false,
-          error: 'Invalid API key (401 Unauthorized)'
+          error: 'Invalid API key (401/403 Unauthorized)'
         };
       }
       return {
@@ -152,68 +93,30 @@ export function validateHostname(hostname) {
 }
 
 /**
- * Validate ElevenLabs voice ID
- * @param {string} apiKey - ElevenLabs API key
- * @param {string} voiceId - Voice ID to validate
+ * Validate Gemini TTS voice name
+ * @param {string} apiKey - API key (kept for interface compatibility, ignored)
+ * @param {string} voiceName - Voice name to validate
  * @returns {Promise<{valid: boolean, name?: string, error?: string}>} Validation result
  */
-export async function validateVoiceId(apiKey, voiceId) {
-  if (!voiceId || voiceId.trim() === '') {
+export async function validateVoiceName(apiKey, voiceName) {
+  if (!voiceName || voiceName.trim() === '') {
     return {
       valid: false,
-      error: 'Voice ID cannot be empty'
+      error: 'Voice name cannot be empty'
     };
   }
 
-  try {
-    const response = await axios.get(`https://api.elevenlabs.io/v1/voices/${voiceId}`, {
-      headers: {
-        'xi-api-key': apiKey
-      },
-      timeout: 10000
-    });
+  const validVoices = ['Kore', 'Puck', 'Charon', 'Fenrir', 'Aoede', 'Leda', 'Orus', 'Zephyr'];
 
-    if (response.status === 200 && response.data.name) {
-      return {
-        valid: true,
-        name: response.data.name
-      };
-    }
-
+  if (validVoices.includes(voiceName)) {
     return {
-      valid: false,
-      error: `Unexpected response: ${response.status}`
-    };
-  } catch (error) {
-    if (error.response) {
-      if (error.response.status === 404) {
-        return {
-          valid: false,
-          error: 'Voice ID not found'
-        };
-      }
-      if (error.response.status === 401) {
-        return {
-          valid: false,
-          error: 'Invalid API key (cannot validate voice ID)'
-        };
-      }
-      return {
-        valid: false,
-        error: `API error: ${error.response.status} ${error.response.statusText}`
-      };
-    }
-
-    if (error.code === 'ECONNABORTED') {
-      return {
-        valid: false,
-        error: 'Request timeout - check your internet connection'
-      };
-    }
-
-    return {
-      valid: false,
-      error: `Network error: ${error.message}`
+      valid: true,
+      name: voiceName
     };
   }
+
+  return {
+    valid: false,
+    error: 'Unknown voice name. Available: Kore, Puck, Charon, Fenrir, Aoede, Leda, Orus, Zephyr'
+  };
 }

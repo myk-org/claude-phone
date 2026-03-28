@@ -257,7 +257,8 @@ router.post('/outbound-call', async function(req, res) {
               initialContext: message,
               context: context,           // NEW: pass structured context
               skipGreeting: true,
-              maxTurns: 20
+              maxTurns: 20,
+              callerExtension: to
             });
 
             await hangupCall(dialog, endpoint, callId);

@@ -2,7 +2,7 @@ import inquirer from 'inquirer';
 import chalk from 'chalk';
 import ora from 'ora';
 import { loadConfig, saveConfig, configExists } from '../../config.js';
-import { validateExtension, validateVoiceId } from '../../validators.js';
+import { validateExtension, validateVoiceName } from '../../validators.js';
 import { writeDockerConfig } from '../../docker.js';
 
 /**
@@ -72,16 +72,11 @@ export async function deviceAddCommand() {
       }
     },
     {
-      type: 'input',
+      type: 'list',
       name: 'voiceId',
-      message: 'ElevenLabs voice ID:',
-      default: config.api.elevenlabs.defaultVoiceId || '',
-      validate: (input) => {
-        if (!input || input.trim() === '') {
-          return 'Voice ID cannot be empty';
-        }
-        return true;
-      }
+      message: 'TTS voice name (Kore, Puck, Charon, Fenrir, Aoede, Leda, Orus, Zephyr):',
+      default: config.api.google?.defaultVoice || 'Kore',
+      choices: ['Kore', 'Puck', 'Charon', 'Fenrir', 'Aoede', 'Leda', 'Orus', 'Zephyr']
     },
     {
       type: 'input',
@@ -91,9 +86,9 @@ export async function deviceAddCommand() {
     }
   ]);
 
-  // Validate voice ID with ElevenLabs API
-  const spinner = ora('Validating voice ID with ElevenLabs...').start();
-  const voiceResult = await validateVoiceId(config.api.elevenlabs.apiKey, answers.voiceId);
+  // Validate voice name
+  const spinner = ora('Validating voice name...').start();
+  const voiceResult = await validateVoiceName(null, answers.voiceId);
 
   if (!voiceResult.valid) {
     spinner.fail(chalk.red(`Voice ID validation failed: ${voiceResult.error}`));

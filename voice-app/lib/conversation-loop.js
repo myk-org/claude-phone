@@ -15,9 +15,11 @@
 const logger = require('./logger');
 
 // Audio cue URLs
-const READY_BEEP_URL = 'http://127.0.0.1:3000/static/ready-beep.wav';
-const GOTIT_BEEP_URL = 'http://127.0.0.1:3000/static/gotit-beep.wav';
-const HOLD_MUSIC_URL = 'http://127.0.0.1:3000/static/hold-music.mp3';
+const MEDIA_HOST = process.env.MEDIA_HOST;
+const HTTP_PORT = process.env.HTTP_PORT || 3000;
+const READY_BEEP_URL = `http://${MEDIA_HOST}:${HTTP_PORT}/static/ready-beep.wav`;
+const GOTIT_BEEP_URL = `http://${MEDIA_HOST}:${HTTP_PORT}/static/gotit-beep.wav`;
+const HOLD_MUSIC_URL = `http://${MEDIA_HOST}:${HTTP_PORT}/static/hold-music.mp3`;
 
 // Claude Code-style thinking phrases
 const THINKING_PHRASES = [
@@ -122,6 +124,7 @@ function extractVoiceLine(response) {
  * @param {string} [options.initialContext] - Context for outbound calls (why we're calling)
  * @param {boolean} [options.skipGreeting=false] - Skip greeting (for outbound, greeting already played)
  * @param {number} [options.maxTurns=20] - Maximum conversation turns
+ * @param {string} [options.callerExtension] - Caller's extension number
  * @returns {Promise<void>}
  */
 async function runConversationLoop(endpoint, dialog, callUuid, options) {
@@ -134,7 +137,8 @@ async function runConversationLoop(endpoint, dialog, callUuid, options) {
     initialContext = null,
     skipGreeting = false,
     deviceConfig = null,
-    maxTurns = 20
+    maxTurns = 20,
+    callerExtension = null
   } = options;
 
   // Extract devicePrompt and voiceId from deviceConfig (for Cephanie etc)
@@ -176,7 +180,7 @@ async function runConversationLoop(endpoint, dialog, callUuid, options) {
       logger.info('Priming Claude with outbound context (non-blocking)', { callUuid });
       claudeBridge.query(
         `[SYSTEM CONTEXT - DO NOT REPEAT]: You just called the user to tell them: "${initialContext}". They have answered. Now listen to their response and help them.`,
-        { callId: callUuid, devicePrompt: devicePrompt, isSystemPrime: true }
+        { callId: callUuid, devicePrompt: devicePrompt, callerExtension, isSystemPrime: true }
       ).catch(err => logger.warn('Prime query failed', { callUuid, error: err.message }));
     }
 
@@ -187,7 +191,7 @@ async function runConversationLoop(endpoint, dialog, callUuid, options) {
     }
 
     // Start audio fork for entire call
-    const wsUrl = `ws://127.0.0.1:${wsPort}/${encodeURIComponent(callUuid)}`;
+    const wsUrl = `ws://${MEDIA_HOST}:${wsPort}/${encodeURIComponent(callUuid)}`;
 
     // Use try-catch for expectSession to handle race conditions
     let sessionPromise;
@@ -358,7 +362,7 @@ async function runConversationLoop(endpoint, dialog, callUuid, options) {
       logger.info('Querying Claude', { callUuid });
       const claudeResponse = await claudeBridge.query(
         transcript,
-        { callId: callUuid, devicePrompt: devicePrompt }
+        { callId: callUuid, devicePrompt: devicePrompt, callerExtension }
       );
 
       // 4. Stop hold music

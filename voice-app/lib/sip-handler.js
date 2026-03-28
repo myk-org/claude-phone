@@ -6,9 +6,11 @@
 const { setTimeout: sleep } = require('node:timers/promises');
 
 // Audio cue URLs
-const READY_BEEP_URL = 'http://127.0.0.1:3000/static/ready-beep.wav';
-const GOTIT_BEEP_URL = 'http://127.0.0.1:3000/static/gotit-beep.wav';
-const HOLD_MUSIC_URL = 'http://127.0.0.1:3000/static/hold-music.mp3';
+const MEDIA_HOST = process.env.MEDIA_HOST;
+const HTTP_PORT = process.env.HTTP_PORT || 3000;
+const READY_BEEP_URL = `http://${MEDIA_HOST}:${HTTP_PORT}/static/ready-beep.wav`;
+const GOTIT_BEEP_URL = `http://${MEDIA_HOST}:${HTTP_PORT}/static/gotit-beep.wav`;
+const HOLD_MUSIC_URL = `http://${MEDIA_HOST}:${HTTP_PORT}/static/hold-music.mp3`;
 
 // Default voice ID (Morpheus)
 const DEFAULT_VOICE_ID = 'JAgnJveGGUh4qy4kh6dF';
@@ -107,8 +109,9 @@ function extractVoiceLine(response) {
 /**
  * Main conversation loop
  * @param {Object} deviceConfig - Device configuration (name, prompt, voiceId, etc.) or null for default
+ * @param {string} callerExtension - Caller's extension number
  */
-async function conversationLoop(endpoint, dialog, callUuid, options, deviceConfig) {
+async function conversationLoop(endpoint, dialog, callUuid, options, deviceConfig, callerExtension) {
   const { ttsService, whisperClient, claudeBridge, wsPort, audioForkServer } = options;
 
   let session = null;
@@ -130,7 +133,7 @@ async function conversationLoop(endpoint, dialog, callUuid, options, deviceConfi
     await endpoint.play(greetingUrl);
 
     // Start fork for entire call
-    const wsUrl = 'ws://127.0.0.1:' + wsPort + '/' + encodeURIComponent(callUuid);
+    const wsUrl = `ws://${MEDIA_HOST}:${wsPort}/${encodeURIComponent(callUuid)}`;
     const sessionPromise = audioForkServer.expectSession(callUuid, { timeoutMs: 10000 });
 
     await endpoint.forkAudioStart({
@@ -221,7 +224,7 @@ async function conversationLoop(endpoint, dialog, callUuid, options, deviceConfi
       console.log('[' + new Date().toISOString() + '] CLAUDE Querying (device: ' + deviceName + ')...');
       const claudeResponse = await claudeBridge.query(
         transcript,
-        { callId: callUuid, devicePrompt: devicePrompt }
+        { callId: callUuid, devicePrompt: devicePrompt, callerExtension }
       );
 
       // Stop hold music
@@ -348,7 +351,7 @@ async function handleInvite(req, res, options) {
       if (endpoint) endpoint.destroy().catch(function() {});
     });
 
-    await conversationLoop(endpoint, dialog, callUuid, options, deviceConfig);
+    await conversationLoop(endpoint, dialog, callUuid, options, deviceConfig, callerId);
     return { endpoint: endpoint, dialog: dialog, callerId: callerId, callUuid: callUuid };
 
   } catch (error) {

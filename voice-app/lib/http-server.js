@@ -19,6 +19,8 @@ const CLEANUP_INTERVAL = 120000;
 // File max age: 10 minutes
 const FILE_MAX_AGE = 600000;
 
+const MEDIA_HOST = process.env.MEDIA_HOST;
+
 /**
  * Create HTTP Server
  *
@@ -89,7 +91,7 @@ function createHttpServer(audioDir, port = 3000) {
       await fs.writeFile(filepath, audioBuffer);
 
       // Generate URL
-      const url = `http://localhost:${port}/audio-files/${filename}`;
+      const url = `http://${MEDIA_HOST}:${port}/audio-files/${filename}`;
 
       debug(`Audio saved, URL: ${url}`);
 
@@ -148,7 +150,7 @@ function createHttpServer(audioDir, port = 3000) {
 
     await fs.writeFile(filepath, audioBuffer);
 
-    const url = `http://localhost:${port}/audio-files/${filename}`;
+    const url = `http://${MEDIA_HOST}:${port}/audio-files/${filename}`;
     debug(`Audio saved, URL: ${url}`);
 
     return url;
@@ -160,7 +162,7 @@ function createHttpServer(audioDir, port = 3000) {
    * @returns {string} Full URL
    */
   function getAudioUrl(filename) {
-    return `http://localhost:${port}/audio-files/${filename}`;
+    return `http://${MEDIA_HOST}:${port}/audio-files/${filename}`;
   }
 
   /**

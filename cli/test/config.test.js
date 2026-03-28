@@ -34,7 +34,7 @@ test('config module', async (t) => {
     const config = {
       version: '1.0.0',
       api: {
-        elevenlabs: { apiKey: 'test-key-123', validated: true }
+        google: { apiKey: 'test-key-123', defaultVoice: 'Kore', validated: true }
       }
     };
 
@@ -51,7 +51,7 @@ test('config module', async (t) => {
   await t.test('loadConfig reads saved config', async () => {
     const config = await loadConfig();
     assert.strictEqual(config.version, '1.0.0');
-    assert.strictEqual(config.api.elevenlabs.apiKey, 'test-key-123');
+    assert.strictEqual(config.api.google.apiKey, 'test-key-123');
   });
 
   await t.test('configExists returns true after save', () => {
@@ -62,15 +62,14 @@ test('config module', async (t) => {
     const updated = {
       version: '1.0.0',
       api: {
-        elevenlabs: { apiKey: 'updated-key', validated: true },
-        openai: { apiKey: 'openai-key', validated: false }
+        google: { apiKey: 'updated-key', defaultVoice: 'Puck', validated: true }
       }
     };
 
     await saveConfig(updated);
     const config = await loadConfig();
-    assert.strictEqual(config.api.elevenlabs.apiKey, 'updated-key');
-    assert.strictEqual(config.api.openai.apiKey, 'openai-key');
+    assert.strictEqual(config.api.google.apiKey, 'updated-key');
+    assert.strictEqual(config.api.google.defaultVoice, 'Puck');
   });
 
   await t.test('config with deployment.mode defaults to standard', async () => {

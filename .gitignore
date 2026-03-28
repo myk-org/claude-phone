@@ -49,3 +49,9 @@ temp/
 !assets/*.png
 !assets/*.jpg
 voice-app/config/devices.json
+
+# Local deployment
+.dev/
+
+# OpenClaw config (contains tokens)
+openclaw.json

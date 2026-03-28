@@ -25,6 +25,19 @@ const {
   buildRepairPrompt,
 } = require('./structured');
 
+
+// Load OpenClaw routing config
+let openclawConfig = { default: { backend: 'claude' }, users: {} };
+try {
+  const configPath = process.env.OPENCLAW_CONFIG || path.join(__dirname, 'openclaw.json');
+  if (fs.existsSync(configPath)) {
+    openclawConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    console.log(`[STARTUP] OpenClaw config loaded: ${Object.keys(openclawConfig.users).length} users configured`);
+  }
+} catch (err) {
+  console.log(`[STARTUP] No OpenClaw config found, using Claude CLI for all callers`);
+}
+
 const app = express();
 const PORT = process.env.PORT || 3333;
 
@@ -87,9 +100,6 @@ function buildClaudeEnvironment() {
     GOPATH: path.join(HOME, 'go'),
     PYENV_ROOT: path.join(HOME, '.pyenv'),
     BUN_INSTALL: path.join(HOME, '.bun'),
-    // CRITICAL: These tell Claude Code it's running in the proper environment
-    CLAUDECODE: '1',
-    CLAUDE_CODE_ENTRYPOINT: 'cli',
   };
 
   // CRITICAL: Remove ANTHROPIC_API_KEY so Claude CLI uses subscription auth
@@ -190,6 +200,39 @@ function runClaudeOnce({ fullPrompt, callId, timestamp }) {
 }
 
 /**
+ * Send a query to OpenClaw via OpenAI-compatible HTTP endpoint
+ * @param {object} userConfig - OpenClaw user config (url, token, sessionKey)
+ * @param {string} prompt - The text to send (already prefixed with [VOICE])
+ * @param {number} timeoutMs - Timeout in milliseconds (default 120000)
+ * @returns {Promise<string>} The response text
+ */
+async function queryOpenClaw(userConfig, prompt, timeoutMs = 120000) {
+  const axios = require('axios');
+  const response = await axios.post(
+    userConfig.url,
+    {
+      model: 'openclaw',
+      messages: [{ role: 'user', content: prompt }],
+      user: userConfig.sessionKey || 'phone',
+      stream: false
+    },
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${userConfig.token}`
+      },
+      timeout: timeoutMs
+    }
+  );
+
+  if (response.data && response.data.choices && response.data.choices[0]) {
+    return response.data.choices[0].message.content;
+  }
+
+  throw new Error('Invalid response from OpenClaw');
+}
+
+/**
  * Voice Context - Prepended to all voice queries
  *
  * This tells Claude how to handle voice-specific patterns:
@@ -263,6 +306,42 @@ app.post('/ask', async (req, res) => {
       success: false,
       error: 'Missing prompt in request body'
     });
+  }
+
+  // Check if caller should be routed to OpenClaw
+  const callerExtension = req.body.callerExtension;
+  if (callerExtension && openclawConfig.users[callerExtension]) {
+    const userConfig = openclawConfig.users[callerExtension];
+    if (userConfig.backend === 'openclaw') {
+      const ocTimestamp = new Date().toISOString();
+      console.log(`[${ocTimestamp}] OPENCLAW ROUTE: caller=${callerExtension}, url=${userConfig.url}`);
+      console.log(`[${ocTimestamp}] QUERY: "${prompt.substring(0, 100)}..."`);
+
+      try {
+        const startTime2 = Date.now();
+        const devicePrompt = req.body.devicePrompt;
+        const voicePrefix = '[VOICE]';
+        const voicePrompt = devicePrompt
+          ? `${voicePrefix}\nSystem: ${devicePrompt}\nUser: ${prompt}`
+          : `${voicePrefix}\n${prompt}`;
+        const response = await queryOpenClaw(userConfig, voicePrompt);
+        const duration = Date.now() - startTime2;
+        console.log(`[${ocTimestamp}] OPENCLAW RESPONSE (${duration}ms): "${response.substring(0, 100)}..."`);
+        return res.json({
+          success: true,
+          response: response,
+          sessionId: callerExtension,
+          duration_ms: duration
+        });
+      } catch (err) {
+        console.error(`[${ocTimestamp}] OPENCLAW ERROR: ${err.message}`);
+        return res.json({
+          success: false,
+          error: err.message,
+          duration_ms: 0
+        });
+      }
+    }
   }
 
   // Check if we have an existing session for this call

@@ -10,16 +10,13 @@ const router = express.Router();
 const logger = require('./logger');
 const { OutboundSession, getSession, getAllSessions } = require('./outbound-session');
 const { initiateOutboundCall, playMessage, hangupCall } = require('./outbound-handler');
-const { runConversationLoop } = require('./conversation-loop');
+const { runGeminiLiveLoop } = require('./gemini-live-loop');
 
 // Dependencies injected via setupRoutes()
 var srf = null;
 var mediaServer = null;
 var deviceRegistry = null;
 var audioForkServer = null;
-var whisperClient = null;
-var claudeBridge = null;
-var ttsService = null;
 var wsPort = 3001;
 
 /**
@@ -164,12 +161,9 @@ router.post('/outbound-call', async function(req, res) {
 
     // For conversation mode, check additional dependencies
     if (mode === 'conversation') {
-      if (!audioForkServer || !whisperClient || !claudeBridge || !ttsService) {
+      if (!audioForkServer) {
         logger.error('Conversation mode dependencies not ready', {
-          audioForkServer: !!audioForkServer,
-          whisperClient: !!whisperClient,
-          claudeBridge: !!claudeBridge,
-          ttsService: !!ttsService
+          audioForkServer: !!audioForkServer
         });
 
         return res.status(503).json({
@@ -247,17 +241,12 @@ router.post('/outbound-call', async function(req, res) {
           session.transition('CONVERSING');
 
           try {
-            await runConversationLoop(endpoint, dialog, callId, {
+            await runGeminiLiveLoop(endpoint, dialog, callId, {
               audioForkServer: audioForkServer,
-              whisperClient: whisperClient,
-              claudeBridge: claudeBridge,
-              ttsService: ttsService,
               wsPort: wsPort,
               deviceConfig: deviceConfig,
               initialContext: message,
-              context: context,           // NEW: pass structured context
               skipGreeting: true,
-              maxTurns: 20,
               callerExtension: to
             });
 
@@ -392,12 +381,9 @@ function setupRoutes(deps) {
   mediaServer = deps.mediaServer;
   deviceRegistry = deps.deviceRegistry || null;
   audioForkServer = deps.audioForkServer || null;
-  whisperClient = deps.whisperClient || null;
-  claudeBridge = deps.claudeBridge || null;
-  ttsService = deps.ttsService || null;
   wsPort = deps.wsPort || 3001;
 
-  var conversationReady = !!(audioForkServer && whisperClient && claudeBridge && ttsService);
+  var conversationReady = !!audioForkServer;
 
   logger.info('Outbound routes initialized', {
     srf: !!srf,

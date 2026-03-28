@@ -15,13 +15,15 @@ var AudioForkServer = require("./lib/audio-fork").AudioForkServer;
 var sipHandler = require("./lib/sip-handler");
 var handleInvite = sipHandler.handleInvite;
 var extractCallerId = sipHandler.extractCallerId;
-var whisperClient = require("./lib/whisper-client");
 var claudeBridge = require("./lib/claude-bridge");
 var ttsService = require("./lib/tts-service");
 
 // Multi-extension support
 var deviceRegistry = require("./lib/device-registry");
 var MultiRegistrar = require("./lib/multi-registrar");
+
+// OpenClaw routing
+var openclawConfig = require('./lib/openclaw-config');
 
 // Connection retry utility
 var connectionRetry = require("./lib/connection-retry");
@@ -92,6 +94,8 @@ console.log("  - HTTP Port:   " + config.http_port);
 console.log("  - WS Port:     " + config.ws_port);
 console.log("  - Audio Dir:   " + config.audio_dir);
 console.log("  - Mix Type:    " + (process.env.AUDIO_FORK_MIXTYPE || "L") + " (capture direction)");
+console.log("  - Phone mode: OpenClaw relay via Gemini Live");
+console.log("  - OpenClaw:   " + (openclawConfig.isConfigured() ? 'configured' : 'NOT configured'));
 console.log("\n[DEVICES] Loaded " + Object.keys(deviceRegistry.getAllDevices()).length + " device extensions");
 console.log("\nWaiting for connections...\n");
 
@@ -199,11 +203,8 @@ function initializeServers() {
   setupOutboundRoutes({
     srf: srf,
     mediaServer: mediaServer,
-    deviceRegistry: deviceRegistry,  // Required for device lookup
+    deviceRegistry: deviceRegistry,
     audioForkServer: audioForkServer,
-    whisperClient: whisperClient,
-    claudeBridge: claudeBridge,
-    ttsService: ttsService,
     wsPort: config.ws_port
   });
 
@@ -243,9 +244,6 @@ function checkReadyState() {
         mediaServer: mediaServer,
         deviceRegistry: deviceRegistry,
         config: config,
-        whisperClient: whisperClient,
-        claudeBridge: claudeBridge,
-        ttsService: ttsService,
         wsPort: config.ws_port,
         externalIp: config.external_ip
       }).catch(function(err) {

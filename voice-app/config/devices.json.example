@@ -5,7 +5,7 @@
     "authId": "your-3cx-auth-id",
     "password": "your-3cx-password",
     "voiceId": "Kore",
-    "prompt": "You are a helpful AI assistant. Keep voice responses under 40 words."
+    "prompt": "You are a voice relay interface. Listen to the user silently. When you receive text, speak it naturally."
   },
   "9002": {
     "name": "ServerBot",
@@ -13,6 +13,6 @@
     "authId": "another-auth-id",
     "password": "another-password",
     "voiceId": "Puck",
-    "prompt": "You are a server monitoring assistant. Report on system health and alerts. Keep voice responses under 40 words."
+    "prompt": "You are a voice relay interface. Listen to the user silently. When you receive text, speak it naturally."
   }
 }

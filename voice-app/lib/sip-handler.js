@@ -1,42 +1,9 @@
 /**
- * SIP Call Handler with Conversation Loop
- * v12: Device registry integration with proper method names
+ * SIP Call Handler with OpenClaw Relay via Gemini Live
+ * v13: OpenClaw relay integration - all calls routed through Gemini Live
  */
 
-const { setTimeout: sleep } = require('node:timers/promises');
-
-// Audio cue URLs
-const MEDIA_HOST = process.env.MEDIA_HOST;
-const HTTP_PORT = process.env.HTTP_PORT || 3000;
-const READY_BEEP_URL = `http://${MEDIA_HOST}:${HTTP_PORT}/static/ready-beep.wav`;
-const GOTIT_BEEP_URL = `http://${MEDIA_HOST}:${HTTP_PORT}/static/gotit-beep.wav`;
-const HOLD_MUSIC_URL = `http://${MEDIA_HOST}:${HTTP_PORT}/static/hold-music.mp3`;
-
-// Default voice ID (Morpheus)
-const DEFAULT_VOICE_ID = 'JAgnJveGGUh4qy4kh6dF';
-
-// Claude Code-style thinking phrases
-const THINKING_PHRASES = [
-  "Pondering...",
-  "Elucidating...",
-  "Cogitating...",
-  "Ruminating...",
-  "Contemplating...",
-  "Consulting the oracle...",
-  "Summoning knowledge...",
-  "Engaging neural pathways...",
-  "Accessing the mainframe...",
-  "Querying the void...",
-  "Let me think about that...",
-  "Processing...",
-  "Hmm, interesting question...",
-  "One moment...",
-  "Searching my brain...",
-];
-
-function getRandomThinkingPhrase() {
-  return THINKING_PHRASES[Math.floor(Math.random() * THINKING_PHRASES.length)];
-}
+const { runGeminiLiveLoop } = require('./gemini-live-loop');
 
 function extractCallerId(req) {
   var from = req.get("From") || "";
@@ -57,222 +24,6 @@ function extractDialedExtension(req) {
     return match[1];
   }
   return null;
-}
-
-function isGoodbye(transcript) {
-  const lower = transcript.toLowerCase().trim();
-  const goodbyePhrases = ['goodbye', 'good bye', 'bye', 'hang up', 'end call', "that's all", 'thats all'];
-  return goodbyePhrases.some(function(phrase) {
-    return lower === phrase || lower.includes(' ' + phrase) ||
-           lower.startsWith(phrase + ' ') || lower.endsWith(' ' + phrase);
-  });
-}
-
-/**
- * Extract voice-friendly line from Claude's response
- * Priority: VOICE_RESPONSE > CUSTOM COMPLETED > COMPLETED > first sentence
- */
-function extractVoiceLine(response) {
-  // Priority 1: VOICE_RESPONSE (new format)
-  var voiceMatch = response.match(/🗣️\s*VOICE_RESPONSE:\s*([^\n]+)/im);
-  if (voiceMatch) {
-    var text = voiceMatch[1].trim().replace(/\*+/g, '').replace(/\[.*?\]/g, '').trim();
-    if (text && text.split(/\s+/).length <= 60) {
-      return text;
-    }
-  }
-
-  // Priority 2: CUSTOM COMPLETED
-  var customMatch = response.match(/🗣️\s*CUSTOM\s+COMPLETED:\s*(.+?)(?:\n|$)/im);
-  if (customMatch) {
-    text = customMatch[1].trim().replace(/\*+/g, '').replace(/\[.*?\]/g, '').trim();
-    if (text && text.split(/\s+/).length <= 50) {
-      return text;
-    }
-  }
-
-  // Priority 3: COMPLETED
-  var completedMatch = response.match(/🎯\s*COMPLETED:\s*(.+?)(?:\n|$)/im);
-  if (completedMatch) {
-    return completedMatch[1].trim().replace(/\*+/g, '').replace(/\[.*?\]/g, '').trim();
-  }
-
-  // Priority 4: First sentence
-  var firstSentence = response.split(/[.!?]/)[0];
-  if (firstSentence && firstSentence.length < 500) {
-    return firstSentence.trim();
-  }
-
-  return response.substring(0, 500).trim();
-}
-
-/**
- * Main conversation loop
- * @param {Object} deviceConfig - Device configuration (name, prompt, voiceId, etc.) or null for default
- * @param {string} callerExtension - Caller's extension number
- */
-async function conversationLoop(endpoint, dialog, callUuid, options, deviceConfig, callerExtension) {
-  const { ttsService, whisperClient, claudeBridge, wsPort, audioForkServer } = options;
-
-  let session = null;
-  let forkRunning = false;
-
-  // Get device-specific settings
-  const deviceName = deviceConfig ? deviceConfig.name : 'Morpheus';
-  const devicePrompt = deviceConfig ? deviceConfig.prompt : null;
-  const voiceId = (deviceConfig && deviceConfig.voiceId) ? deviceConfig.voiceId : DEFAULT_VOICE_ID;
-  const greeting = deviceConfig && deviceConfig.name !== 'Morpheus'
-    ? "Hello! I'm " + deviceConfig.name + ". How can I help you today?"
-    : "Hello! I'm your server. How can I help you today?";
-
-  try {
-    console.log('[' + new Date().toISOString() + '] CONVERSATION Starting (session: ' + callUuid + ', device: ' + deviceName + ', voice: ' + voiceId + ')...');
-
-    // Play device-specific greeting with device voice
-    const greetingUrl = await ttsService.generateSpeech(greeting, voiceId);
-    await endpoint.play(greetingUrl);
-
-    // Start fork for entire call
-    const wsUrl = `ws://${MEDIA_HOST}:${wsPort}/${encodeURIComponent(callUuid)}`;
-    const sessionPromise = audioForkServer.expectSession(callUuid, { timeoutMs: 10000 });
-
-    await endpoint.forkAudioStart({
-      wsUrl: wsUrl,
-      mixType: 'mono',
-      sampling: '16k'
-    });
-    forkRunning = true;
-
-    session = await sessionPromise;
-    console.log('[' + new Date().toISOString() + '] AUDIO Fork connected');
-
-    // Main conversation loop
-    let turnCount = 0;
-    const MAX_TURNS = 20;
-
-    while (turnCount < MAX_TURNS) {
-      turnCount++;
-      console.log('[' + new Date().toISOString() + '] CONVERSATION Turn ' + turnCount + '/' + MAX_TURNS);
-
-      // READY BEEP
-      try {
-        await endpoint.play(READY_BEEP_URL);
-      } catch (e) {
-        console.log('[' + new Date().toISOString() + '] BEEP: Ready beep failed, continuing');
-      }
-
-      session.setCaptureEnabled(true);
-      console.log('[' + new Date().toISOString() + '] LISTEN Waiting for speech...');
-
-      let utterance = null;
-      try {
-        utterance = await session.waitForUtterance({ timeoutMs: 30000 });
-        console.log('[' + new Date().toISOString() + '] LISTEN Got: ' + utterance.audio.length + ' bytes');
-      } catch (err) {
-        console.log('[' + new Date().toISOString() + '] LISTEN Timeout: ' + err.message);
-      }
-
-      session.setCaptureEnabled(false);
-
-      if (!utterance) {
-        const promptUrl = await ttsService.generateSpeech("I didn't hear anything. Are you still there?", voiceId);
-        await endpoint.play(promptUrl);
-        continue;
-      }
-
-      // GOT-IT BEEP
-      try {
-        await endpoint.play(GOTIT_BEEP_URL);
-      } catch (e) {
-        console.log('[' + new Date().toISOString() + '] BEEP: Got-it beep failed, continuing');
-      }
-
-      // Transcribe
-      const transcript = await whisperClient.transcribe(utterance.audio, {
-        format: 'pcm',
-        sampleRate: 16000
-      });
-
-      console.log('[' + new Date().toISOString() + '] WHISPER: "' + transcript + '"');
-
-      if (!transcript || transcript.trim().length < 2) {
-        const clarifyUrl = await ttsService.generateSpeech("Sorry, I didn't catch that. Could you repeat?", voiceId);
-        await endpoint.play(clarifyUrl);
-        continue;
-      }
-
-      if (isGoodbye(transcript)) {
-        const byeUrl = await ttsService.generateSpeech("Goodbye! Call again anytime.", voiceId);
-        await endpoint.play(byeUrl);
-        break;
-      }
-
-      // THINKING FEEDBACK
-      const thinkingPhrase = getRandomThinkingPhrase();
-      console.log('[' + new Date().toISOString() + '] THINKING: "' + thinkingPhrase + '"');
-      const thinkingUrl = await ttsService.generateSpeech(thinkingPhrase, voiceId);
-      await endpoint.play(thinkingUrl);
-
-      // Hold music in background
-      let musicPlaying = false;
-      endpoint.play(HOLD_MUSIC_URL).catch(function(e) {
-        console.log('[' + new Date().toISOString() + '] MUSIC: Hold music failed, continuing');
-      });
-      musicPlaying = true;
-
-      // Query Claude with device-specific prompt
-      console.log('[' + new Date().toISOString() + '] CLAUDE Querying (device: ' + deviceName + ')...');
-      const claudeResponse = await claudeBridge.query(
-        transcript,
-        { callId: callUuid, devicePrompt: devicePrompt, callerExtension }
-      );
-
-      // Stop hold music
-      if (musicPlaying) {
-        try {
-          await endpoint.api('uuid_break', endpoint.uuid);
-        } catch (e) {}
-      }
-
-      console.log('[' + new Date().toISOString() + '] CLAUDE Response received');
-
-      // Extract and play voice line with device voice
-      const voiceLine = extractVoiceLine(claudeResponse);
-      console.log('[' + new Date().toISOString() + '] VOICE: "' + voiceLine + '"');
-
-      const responseUrl = await ttsService.generateSpeech(voiceLine, voiceId);
-      await endpoint.play(responseUrl);
-
-      console.log('[' + new Date().toISOString() + '] CONVERSATION Turn ' + turnCount + ' complete');
-    }
-
-    if (turnCount >= MAX_TURNS) {
-      const maxUrl = await ttsService.generateSpeech("We've been talking for a while. Goodbye!", voiceId);
-      await endpoint.play(maxUrl);
-    }
-
-  } catch (error) {
-    console.error('[' + new Date().toISOString() + '] CONVERSATION Error:', error.message);
-    try {
-      if (session) session.setCaptureEnabled(false);
-      const errUrl = await ttsService.generateSpeech("Sorry, something went wrong.", voiceId);
-      await endpoint.play(errUrl);
-    } catch (e) {}
-  } finally {
-    console.log('[' + new Date().toISOString() + '] CONVERSATION Cleanup...');
-
-    try {
-      await claudeBridge.endSession(callUuid);
-    } catch (e) {}
-
-    if (forkRunning) {
-      try {
-        await endpoint.forkAudioStop();
-      } catch (e) {}
-    }
-
-    try { dialog.destroy(); } catch (e) {}
-  }
 }
 
 /**
@@ -351,7 +102,14 @@ async function handleInvite(req, res, options) {
       if (endpoint) endpoint.destroy().catch(function() {});
     });
 
-    await conversationLoop(endpoint, dialog, callUuid, options, deviceConfig, callerId);
+    // Run Gemini Live with OpenClaw relay
+    await runGeminiLiveLoop(endpoint, dialog, callUuid, {
+      audioForkServer: options.audioForkServer,
+      wsPort: options.wsPort,
+      deviceConfig: deviceConfig,
+      callerExtension: callerId
+    });
+
     return { endpoint: endpoint, dialog: dialog, callerId: callerId, callUuid: callUuid };
 
   } catch (error) {

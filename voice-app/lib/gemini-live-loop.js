@@ -4,7 +4,11 @@
  * Gemini Live handles speech recognition and speech synthesis.
  * OpenClaw provides the AI brain (context, memory, tools).
  *
- * Flow: Caller audio → Gemini STT → OpenClaw → Gemini TTS → Caller
+ * Supports mid-call mode switching:
+ *   RELAY (default): Caller → Gemini STT → OpenClaw → Gemini TTS → Caller
+ *   DIRECT: Caller → Gemini answers natively (sub-second, no context)
+ *
+ * Trigger words: "direct mode"/"fast mode" and "brain mode"/"smart mode"
  */
 
 var fs = require('fs');
@@ -21,6 +25,25 @@ var HTTP_PORT = process.env.HTTP_PORT || 3000;
 
 var STATE_LISTENING = 'LISTENING';
 var STATE_SPEAKING = 'SPEAKING';
+
+// Trigger phrases for mode switching (case-insensitive)
+var DIRECT_MODE_TRIGGERS = ['direct mode', 'fast mode', 'quick mode', 'מצב ישיר', 'מצב מהיר'];
+var RELAY_MODE_TRIGGERS = ['brain mode', 'smart mode', 'clawdbot', 'מצב מלא', 'מצב חכם'];
+
+function checkModeTrigger(transcript) {
+  var lower = transcript.toLowerCase().trim();
+  for (var i = 0; i < DIRECT_MODE_TRIGGERS.length; i++) {
+    if (lower === DIRECT_MODE_TRIGGERS[i] || lower.indexOf(DIRECT_MODE_TRIGGERS[i]) !== -1) {
+      return 'direct';
+    }
+  }
+  for (var j = 0; j < RELAY_MODE_TRIGGERS.length; j++) {
+    if (lower === RELAY_MODE_TRIGGERS[j] || lower.indexOf(RELAY_MODE_TRIGGERS[j]) !== -1) {
+      return 'relay';
+    }
+  }
+  return null;
+}
 
 function pcmToWav(pcmBuffer, sampleRate) {
   var wav = new WaveFile();
@@ -92,6 +115,7 @@ async function runGeminiLiveLoop(endpoint, dialog, callUuid, options) {
   var inputTranscriptBuffer = '';
   var queryInProgress = false;
   var queryDebounceTimer = null;
+  var directMode = false;
 
   var audioAccumulator = Buffer.alloc(0);
   var isPlaying = false;
@@ -152,6 +176,23 @@ async function runGeminiLiveLoop(endpoint, dialog, callUuid, options) {
     var transcript = inputTranscriptBuffer.trim();
     inputTranscriptBuffer = '';
 
+    // Check for mode switch trigger
+    var modeTrigger = checkModeTrigger(transcript);
+    if (modeTrigger === 'direct') {
+      logger.info('Switching to DIRECT mode', { callUuid: callUuid, trigger: transcript });
+      directMode = true;
+      session.sendText('You are now in direct mode. Answer the user\'s questions directly and conversationally. Be helpful and natural.');
+      state = STATE_SPEAKING;
+      return;
+    }
+    if (modeTrigger === 'relay') {
+      logger.info('Switching to RELAY mode', { callUuid: callUuid, trigger: transcript });
+      directMode = false;
+      session.sendText('You are now in relay mode. Stop answering questions. Only speak the exact text messages you receive.');
+      state = STATE_SPEAKING;
+      return;
+    }
+
     if (!transcript || transcript.length < 2) {
       logger.info('Empty or too short transcript, keep listening', { callUuid: callUuid });
       return;
@@ -191,7 +232,8 @@ async function runGeminiLiveLoop(endpoint, dialog, callUuid, options) {
       hasInitialContext: !!initialContext,
       voiceId: voiceId,
       callerExtension: callerExtension,
-      openclawUrl: openclawRoute.url
+      openclawUrl: openclawRoute.url,
+      directMode: false
     });
 
     dialog.on('destroy', onDialogDestroy);
@@ -271,10 +313,18 @@ async function runGeminiLiveLoop(endpoint, dialog, callUuid, options) {
 
     // 5. Handle inputTranscription (what the user said) — debounce OpenClaw query
     session.on('inputTranscription', function(text) {
-      if (state !== STATE_LISTENING || queryInProgress) return;
+      if (state !== STATE_LISTENING) return;
 
       inputTranscriptBuffer += text;
-      logger.debug('Input transcript chunk', { callUuid: callUuid, text: text });
+      logger.debug('Input transcript chunk', { callUuid: callUuid, text: text, directMode: directMode });
+
+      if (directMode) {
+        // In direct mode, only check for mode switch triggers
+        // Gemini handles the response natively — no OpenClaw query needed
+        return;
+      }
+
+      if (queryInProgress) return;
 
       // Debounce: fire OpenClaw query 1.5s after last transcript chunk
       if (queryDebounceTimer) {
@@ -288,7 +338,12 @@ async function runGeminiLiveLoop(endpoint, dialog, callUuid, options) {
 
     // 6. Handle Gemini audio output
     session.on('audio', function(pcm8k) {
-      if (state === STATE_SPEAKING) {
+      if (state === STATE_SPEAKING || (state === STATE_LISTENING && directMode)) {
+        // In SPEAKING state: always play audio (relay response or direct response)
+        // In LISTENING+directMode: Gemini is answering directly, play its audio
+        if (state === STATE_LISTENING && directMode) {
+          state = STATE_SPEAKING;
+        }
         audioAccumulator = Buffer.concat([audioAccumulator, pcm8k]);
 
         if (flushTimer) {
@@ -297,20 +352,34 @@ async function runGeminiLiveLoop(endpoint, dialog, callUuid, options) {
         var flushDelay = audioAccumulator.length >= 8000 ? 50 : 200;
         flushTimer = setTimeout(function() { flushAudio(); }, flushDelay);
       }
-      // In LISTENING state, discard all Gemini audio
+      // In LISTENING state (relay mode), discard all Gemini audio
     });
 
     // 7. Handle turnComplete
     session.on('turnComplete', function() {
       if (state === STATE_LISTENING) {
-        // turnComplete in LISTENING — Gemini finished its (discarded) response
-        // If we have pending transcript, fire the query immediately
-        if (queryDebounceTimer) {
-          clearTimeout(queryDebounceTimer);
-          queryDebounceTimer = null;
-        }
-        if (inputTranscriptBuffer.trim().length >= 2 && !queryInProgress) {
-          fireOpenClawQuery();
+        if (directMode) {
+          // In direct mode, only check for mode switch back to relay
+          var pendingText = inputTranscriptBuffer.trim();
+          inputTranscriptBuffer = '';
+          if (pendingText) {
+            var trigger = checkModeTrigger(pendingText);
+            if (trigger === 'relay') {
+              logger.info('Switching to RELAY mode', { callUuid: callUuid, trigger: pendingText });
+              directMode = false;
+              session.sendText('You are now in relay mode. Stop answering questions. Only speak the exact text messages you receive.');
+              state = STATE_SPEAKING;
+            }
+          }
+        } else {
+          // Relay mode: fire the OpenClaw query immediately if we have transcript
+          if (queryDebounceTimer) {
+            clearTimeout(queryDebounceTimer);
+            queryDebounceTimer = null;
+          }
+          if (inputTranscriptBuffer.trim().length >= 2 && !queryInProgress) {
+            fireOpenClawQuery();
+          }
         }
 
       } else if (state === STATE_SPEAKING) {
